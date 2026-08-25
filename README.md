@@ -39,7 +39,8 @@ A lightweight, zero-dependency music streaming application engineered with Core 
 <img width="347" height="762" alt="image" src="https://github.com/user-attachments/assets/dd9ce09a-342a-4e5f-8209-ec1d290b2e96" />
 
 <img width="347" height="762" alt="image" src="https://github.com/user-attachments/assets/22bc9387-9d9b-49e4-95a0-798d3b33c292" />
- https://github.com/user-attachments/assets/8d424bda-cc60-440c-b947-6b88f4dc85b0
+
+https://github.com/user-attachments/assets/8d424bda-cc60-440c-b947-6b88f4dc85b0
 
 
 
