@@ -30,17 +30,17 @@ A lightweight, zero-dependency music streaming application engineered with Core 
 
 *Curated with 💖 By Royal*
 
-## Report Generated
-
-<img width="1907" height="1611" alt="image" src="https://github.com/user-attachments/assets/1c44b46d-196d-46a4-8288-827dcef6241e" />
 
 
 <img width="356" height="762" alt="image" src="https://github.com/user-attachments/assets/4add1b3a-6a48-41fa-8db7-9363358c40d2" />
 
-
 <img width="347" height="762" alt="image" src="https://github.com/user-attachments/assets/dd9ce09a-342a-4e5f-8209-ec1d290b2e96" />
 
-
-
 <img width="347" height="762" alt="image" src="https://github.com/user-attachments/assets/22bc9387-9d9b-49e4-95a0-798d3b33c292" />
+
+
+
+## Report Generated
+
+<img width="1907" height="1611" alt="image" src="https://github.com/user-attachments/assets/1c44b46d-196d-46a4-8288-827dcef6241e" />
 
