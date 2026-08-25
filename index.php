@@ -80,28 +80,53 @@ if (isset($_GET['api'])) {
             }
             $tracks[] = $cache[$fileUrl];
         }
+        
+        if ($cacheUpdated) file_put_contents($cacheFile, json_encode($cache));
+        echo json_encode($tracks);
+        exit;
+        
     } elseif ($_GET['api'] === 'get_playlist' && isset($_GET['folder'])) {
+        // PAGINATION LOGIC: Grabs only 10 tracks at a time
         $folder = $_GET['folder'];
+        $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+        $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 5;
+        
         $targetDir = $folder === 'All Tracks' ? $musicDir : $musicDir . '/' . $folder;
+        $allValidFiles = [];
+        
         if (is_dir($targetDir)) {
             foreach (scandir($targetDir) as $item) {
-                if (is_file($targetDir . '/' . $item) && in_array(strtolower(pathinfo($item, PATHINFO_EXTENSION)), ['mp3', 'm4a'])) {
-                    $filePath = $targetDir . '/' . $item;
-                    $fileUrl = $folder === 'All Tracks' ? 'music/' . rawurlencode($item) : 'music/' . rawurlencode($folder) . '/' . rawurlencode($item);
-                    $mtime = filemtime($filePath);
-                    if (!isset($cache[$fileUrl]) || $cache[$fileUrl]['mtime'] !== $mtime) {
-                        $cache[$fileUrl] = extractMetadata($filePath, $fileUrl, $folder);
-                        $cacheUpdated = true;
+                if ($item !== '.' && $item !== '..' && is_file($targetDir . '/' . $item)) {
+                    if (in_array(strtolower(pathinfo($item, PATHINFO_EXTENSION)), ['mp3', 'm4a'])) {
+                        $allValidFiles[] = $item;
                     }
-                    $tracks[] = $cache[$fileUrl];
                 }
             }
         }
-    }
+        
+        $totalFiles = count($allValidFiles);
+        $slice = array_slice($allValidFiles, $offset, $limit);
+        
+        foreach ($slice as $item) {
+            $filePath = $targetDir . '/' . $item;
+            $fileUrl = $folder === 'All Tracks' ? 'music/' . rawurlencode($item) : 'music/' . rawurlencode($folder) . '/' . rawurlencode($item);
+            $mtime = filemtime($filePath);
+            if (!isset($cache[$fileUrl]) || $cache[$fileUrl]['mtime'] !== $mtime) {
+                $cache[$fileUrl] = extractMetadata($filePath, $fileUrl, $folder);
+                $cacheUpdated = true;
+            }
+            $tracks[] = $cache[$fileUrl];
+        }
 
-    if ($cacheUpdated) file_put_contents($cacheFile, json_encode($cache));
-    echo json_encode($tracks);
-    exit;
+        if ($cacheUpdated) file_put_contents($cacheFile, json_encode($cache));
+        
+        // Return tracks and a boolean to let JS know if there is more to load
+        echo json_encode([
+            'tracks' => $tracks,
+            'hasMore' => ($offset + $limit) < $totalFiles
+        ]);
+        exit;
+    }
 }
 
 // Normal Page Load: Just scan for folder names
@@ -123,6 +148,17 @@ if (is_dir($musicDir)) {
     <!--  favicon links here -->
     <link rel="icon" type="image/png" href="Icons/Favicon.png">
     <link rel="apple-touch-icon" href="Icons/Favicon.png">
+    
+    <!-- Primary SEO Meta Tags -->
+    <meta name="description" content="A lightweight, free-to-use personal cloud music player. This zero-dependency streaming project was built for personal use. Curated and made by Royal.">
+    <meta name="keywords" content="cloud music player, personal music streaming, free to use, PHP audio player, Vanilla JS player, made by Royal, custom web player">
+    <meta name="author" content="Royal">
+    <meta name="robots" content="index, follow">
+
+    <!-- Open Graph / Social Media Meta Tags -->
+    <meta property="og:title" content="Royal's Music Player">
+    <meta property="og:description" content="A custom, free-to-use personal cloud music player engineered with Core PHP and Vanilla JS. Made by Royal.">
+    <meta property="og:type" content="website">
     
     <style>
         :root { --bg: #121212; --panel: #181818; --hover: #2a2a2a; --primary: #1DB954; --text: #fff; --sub: #b3b3b3; }
@@ -151,7 +187,6 @@ if (is_dir($musicDir)) {
         .t-artist { font-size: 13px; color: var(--sub); margin-top: 4px; text-overflow: ellipsis; overflow: hidden; }
 
         .player-bar { background: var(--panel); border-top: 1px solid #282828; padding: 12px 24px; display: flex; justify-content: space-between; align-items: center; position: fixed; bottom: 0; width: 100%; z-index: 50; }
-        /* Added cursor pointer to trigger full screen */
         .now-playing { display: flex; align-items: center; gap: 14px; width: 30%; min-width: 180px; cursor: pointer; transition: 0.2s; }
         .now-playing:hover { opacity: 0.8; }
         
@@ -161,9 +196,10 @@ if (is_dir($musicDir)) {
 
         .controls-wrapper { display: flex; flex-direction: column; align-items: center; width: 40%; max-width: 500px; }
         .controls { display: flex; align-items: center; gap: 20px; margin-bottom: 8px; }
-        .btn { background: none; border: none; color: var(--sub); font-size: 18px; cursor: pointer; transition: 0.2s; }
+        
+        .btn { position: relative; isolation: isolate; background: none; border: none; color: var(--sub); font-size: 18px; cursor: pointer; transition: 0.2s; }
         .btn:hover { color: var(--text); transform: scale(1.05); }
-        .btn-play { background: #fff; color: #000; width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 16px; }
+        .btn-play { background: #1DB954; color: #000; width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 16px; }
 
         .progress { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11px; color: var(--sub); }
         .bar { flex: 1; height: 4px; background: #4d4d4d; border-radius: 2px; cursor: pointer; position: relative; }
@@ -185,6 +221,61 @@ if (is_dir($musicDir)) {
         .tooltip-btn:hover::after { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
         
         .loader { text-align: center; padding: 40px; color: var(--sub); font-size: 14px; }
+
+        /* =========================================
+           3D LIQUID WATERCOLOR SPLASH ANIMATION
+           ========================================= */
+        .liquid-splash-container {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: 100%; height: 100%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .liquid-blob {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: calc(100% + 12px);
+            height: calc(100% + 12px);
+            background: var(--primary);
+            border-radius: 35% 65% 55% 45% / 45% 45% 55% 55%;
+            transform: translate(-50%, -50%) scale(0);
+            animation: liquidBlobAnim 0.7s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+            box-shadow: 
+                inset 3px 3px 5px rgba(255,255,255,0.5), 
+                inset -3px -3px 5px rgba(0,0,0,0.3),
+                0 2px 6px rgba(0,0,0,0.4);
+        }
+
+        @keyframes liquidBlobAnim {
+            0% { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 0.9; }
+            40% { transform: translate(-50%, -50%) scale(1.1) rotate(20deg); opacity: 0.7; border-radius: 50% 50% 30% 70% / 60% 40% 60% 40%; }
+            100% { transform: translate(-50%, -50%) scale(1.2) rotate(40deg); opacity: 0; border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+        }
+
+        .liquid-particle {
+            position: absolute;
+            top: 50%; left: 50%;
+            width: var(--size);
+            height: var(--size);
+            background: var(--primary);
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            animation: liquidParticleAnim var(--dur) cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+            box-shadow: 
+                inset 2px 2px 3px rgba(255,255,255,0.6), 
+                inset -1px -1px 3px rgba(0,0,0,0.3),
+                0 2px 3px rgba(0,0,0,0.3);
+        }
+
+        @keyframes liquidParticleAnim {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 1; }
+            30% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(1); opacity: 1; }
+            50% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.9); opacity: 0.9; }
+            100% { transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty-drip))) scale(0.2); opacity: 0; }
+        }
 
         /* =========================================
            FULLSCREEN OVERLAY STYLES
@@ -230,7 +321,6 @@ if (is_dir($musicDir)) {
             .controls-wrapper { width: 55%; max-width: none; }
             .controls { gap: 12px; }
             
-            /* Hides everything except play/pause in the bottom bar on mobile */
             .hide-on-mobile { display: none !important; }
             
             .btn { font-size: 16px; }
@@ -249,7 +339,7 @@ if (is_dir($musicDir)) {
                 display: inline-block;
                 margin-top: 40px;
                 background: var(--primary);
-                color: #fff;
+                color: #000000;
                 padding: 10px 24px;
                 border-radius: 50px;
                 font-size: 13px;
@@ -275,7 +365,7 @@ if (is_dir($musicDir)) {
 </head>
 <body>
 
-<div class="container">
+<main class="container">
     <header>
         <h1 style="font-size: 28px;">Royal's Music Player</h1>
         <input type="text" class="search-bar" id="search" placeholder="Search tracks..." oninput="filterSearch()">
@@ -290,11 +380,11 @@ if (is_dir($musicDir)) {
     <div id="tracklist">
         <div class="loader">Loading tracks...</div>
     </div>
-</div>
+</main>
 
 <div class="player-bar">
     <div class="now-playing" onclick="toggleFullScreen()">
-        <img id="now-img" class="now-img" style="display:none;">
+        <img id="now-img" class="now-img" style="display:none;" alt="album art">
         <div id="now-placeholder" class="now-img" style="display:flex;align-items:center;justify-content:center;font-size:24px;">🎵</div>
         <div style="overflow: hidden;">
             <div class="now-title" id="now-title">Select a track</div>
@@ -304,14 +394,13 @@ if (is_dir($musicDir)) {
 
     <div class="controls-wrapper">
         <div class="controls">
-           <!-- Added hide-on-mobile class to hide extra controls on smaller screens -->
            <button class="btn tooltip-btn hide-on-mobile" data-tooltip="Enable shuffle" id="btn-shuffle" onclick="toggleShuffle()">🔀</button>
             <button class="btn tooltip-btn" data-tooltip="Previous" onclick="prevTrack()">⏮</button>
             <button class="btn btn-play tooltip-btn" data-tooltip="Play" id="btn-play" onclick="togglePlay()">▶</button>
             <button class="btn tooltip-btn" data-tooltip="Next" onclick="nextTrack()">⏭</button>
             <button class="btn tooltip-btn hide-on-mobile" data-tooltip="Enable repeat" id="btn-repeat" onclick="toggleRepeat()">🔁</button>
         </div>
-        <div class="progress hide-on-mobile"> <!-- Hides the progress bar on mobile bottom bar -->
+        <div class="progress hide-on-mobile">
             <span id="time-curr">0:00</span>
             <div class="bar" id="progress-bar" onclick="seek(event)">
                 <div class="bar-fill" id="progress-fill"></div>
@@ -335,7 +424,7 @@ if (is_dir($musicDir)) {
     </div>
     
     <div class="fs-art-container">
-        <img id="fs-img" src="" style="display:none;">
+        <img id="fs-img" src="" style="display:none;" alt="album art">
         <div id="fs-placeholder" style="display:flex;align-items:center;justify-content:center;font-size:80px;background:#282828;width:100%;height:100%;">🎵</div>
     </div>
     
@@ -359,12 +448,8 @@ if (is_dir($musicDir)) {
             <button class="btn" id="fs-btn-shuffle" onclick="toggleShuffle()">🔀</button>
             <button class="btn" onclick="prevTrack()">⏮</button>
             
-            <!-- 15s Skip Backward -->
             <button class="btn" onclick="skipTime(-15)" style="font-size: 16px; font-weight: 600;">-15s</button>
-            
             <button class="btn btn-play" id="fs-btn-play" onclick="togglePlay()">▶</button>
-            
-            <!-- 15s Skip Forward -->
             <button class="btn" onclick="skipTime(15)" style="font-size: 16px; font-weight: 600;">+15s</button>
             
             <button class="btn" onclick="nextTrack()">⏭</button>
@@ -372,7 +457,6 @@ if (is_dir($musicDir)) {
         </div>
     </div>
     
-    <!-- NEW: Mobile-only breathing credit badge -->
     <div class="credit-badge">Thoughtfully Curated With 💖 By Royal</div>
 </div>
 
@@ -380,87 +464,196 @@ if (is_dir($musicDir)) {
 <audio id="audio-preload" preload="auto" muted playsinline type="audio/mpeg"></audio>
   
 <script>
-    let playlistCache = {}; // Client-side cache to store fetched playlists
+    // JS STATE MANAGEMENT
+    let playlistCache = {}; 
     let viewingTracks = []; 
     let playingQueue = []; 
     let activeFolder = 'Home';
+    let currentFetchFolder = ''; 
     let currentIndex = -1;
     let nextIndex = -1;
     let isShuffle = false;
     let isRepeat = false;
+    let currentVolume = 1; 
+    let preloadTimeout; 
     
-    const audio = document.getElementById('audio');
-    const audioPreload = document.getElementById('audio-preload');
+    let mainAudio = document.getElementById('audio');
+    let nextAudio = document.getElementById('audio-preload');
     
-    // UI Elements Array to easily update both normal and fullscreen buttons
     const playBtns = [document.getElementById('btn-play'), document.getElementById('fs-btn-play')];
     const shuffleBtns = [document.getElementById('btn-shuffle'), document.getElementById('fs-btn-shuffle')];
     const repeatBtns = [document.getElementById('btn-repeat'), document.getElementById('fs-btn-repeat')];
     
-    // Load Home on Start
     window.onload = () => loadPlaylist('Home');
+
+    // HELPER: Safely update button text nodes without destroying splash animations
+    function updateButtonText(btn, text) {
+        let textNodeFound = false;
+        btn.childNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) {
+                node.nodeValue = text;
+                textNodeFound = true;
+            }
+        });
+        if (!textNodeFound) {
+            btn.appendChild(document.createTextNode(text));
+        }
+    }
 
     function toggleFullScreen() {
         document.getElementById('fs-player').classList.toggle('active');
     }
 
-    // 15 second skip function
     function skipTime(seconds) {
-        if (!audio.duration) return;
-        audio.currentTime = Math.max(0, Math.min(audio.currentTime + seconds, audio.duration));
+        if (!mainAudio.duration) return;
+        mainAudio.currentTime = Math.max(0, Math.min(mainAudio.currentTime + seconds, mainAudio.duration));
     }
 
+    // NEW PAGINATION LOADING LOGIC
     function loadPlaylist(folderName) {
         activeFolder = folderName;
+        currentFetchFolder = folderName;
+        
         document.querySelectorAll('.pl-tab').forEach(tab => {
             tab.classList.toggle('active', tab.textContent === folderName);
         });
+
+        // "All Tracks" Offline Aggregation Logic
+        if (folderName === 'All Tracks') {
+            let combinedTracks = [];
+            let urls = new Set();
+            
+            for (const key in playlistCache) {
+                if (key !== 'Home' && key !== 'All Tracks') {
+                    playlistCache[key].tracks.forEach(track => {
+                        if (!urls.has(track.url)) {
+                            urls.add(track.url);
+                            combinedTracks.push(track);
+                        }
+                    });
+                }
+            }
+            
+            combinedTracks.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+            
+            playlistCache['All Tracks'] = { tracks: combinedTracks, isComplete: true, isFetching: false };
+            viewingTracks = playlistCache['All Tracks'].tracks;
+            
+            if (viewingTracks.length > 0) {
+                renderTracklist();
+            } else {
+                const container = document.getElementById('tracklist');
+                container.innerHTML = '<div class="loader"> ✨ Nothing Here! Dont worry, browse other playlist tracks first to populate All Tracks.</div>';
+            }
+            
+            return; 
+        }
         
-        // If we already fetched this folder's data, load it instantly from memory
-        if (playlistCache[folderName]) {
-            viewingTracks = playlistCache[folderName];
+        if (!playlistCache[folderName]) {
+            playlistCache[folderName] = { tracks: [], isComplete: false, isFetching: false };
+        }
+        
+        viewingTracks = playlistCache[folderName].tracks;
+
+        if (viewingTracks.length > 0) {
             renderTracklist();
-            return;
+        } else {
+            const container = document.getElementById('tracklist');
+            container.innerHTML = '<div class="loader">Loading tracks...</div>';
         }
 
-        const container = document.getElementById('tracklist');
-        container.innerHTML = '<div class="loader">Loading tracks...</div>';
-        
-        const endpoint = folderName === 'Home' ? '?api=get_random' : `?api=get_playlist&folder=${encodeURIComponent(folderName)}`;
+        if (folderName === 'Home') {
+            if (!playlistCache[folderName].isComplete) {
+                playlistCache[folderName].isFetching = true;
+                fetch('?api=get_random')
+                    .then(res => res.json())
+                    .then(data => {
+                        playlistCache[folderName] = { tracks: data, isComplete: true, isFetching: false };
+                        if (currentFetchFolder === 'Home') {
+                            viewingTracks = playlistCache[folderName].tracks;
+                            renderTracklist();
+                        }
+                    });
+            }
+        } else {
+            if (!playlistCache[folderName].isComplete && !playlistCache[folderName].isFetching) {
+                fetchNextBatch(folderName, viewingTracks.length, 5);
+            }
+        }
+    }
+
+    function fetchNextBatch(folderName, offset, limit) {
+        playlistCache[folderName].isFetching = true;
+        const endpoint = `?api=get_playlist&folder=${encodeURIComponent(folderName)}&offset=${offset}&limit=${limit}`;
         
         fetch(endpoint)
             .then(res => res.json())
             .then(data => {
-                playlistCache[folderName] = data; // Save to cache for instant loading next time
-                viewingTracks = data;
-                renderTracklist();
+                if (!playlistCache[folderName]) return;
+                
+                const fetchedTracks = data.tracks || [];
+                const hasMore = data.hasMore;
+
+                const appendStartIndex = playlistCache[folderName].tracks.length;
+
+                playlistCache[folderName].tracks.push(...fetchedTracks);
+                playlistCache[folderName].isComplete = !hasMore;
+                playlistCache[folderName].isFetching = false;
+                
+                if (currentFetchFolder === folderName) {
+                    viewingTracks = playlistCache[folderName].tracks;
+                    
+                    const currentFilter = document.getElementById('search').value.toLowerCase();
+                    if (currentFilter === '') {
+                        renderTracklist('', appendStartIndex);
+                    } else {
+                        renderTracklist(currentFilter, 0); 
+                    }
+                }
+                
+                if (hasMore) {
+                    fetchNextBatch(folderName, offset + limit, limit);
+                }
+            })
+            .catch(() => {
+                playlistCache[folderName].isFetching = false;
             });
     }
 
-    function renderTracklist(filterText = '') {
+    function renderTracklist(filterText = '', appendStartIndex = 0) {
         const container = document.getElementById('tracklist');
-        container.innerHTML = '';
         
-        if (viewingTracks.length === 0) {
-            container.innerHTML = '<div class="loader">No tracks found.</div>';
-            return;
+        if (appendStartIndex === 0) {
+            container.innerHTML = '';
+            if (viewingTracks.length === 0) {
+                container.innerHTML = '<div class="loader">No tracks found.</div>';
+                return;
+            }
+        } else {
+            const loader = container.querySelector('.loader');
+            if (loader) loader.remove();
         }
 
-        viewingTracks.forEach((track, index) => {
+        const tracksToRender = appendStartIndex > 0 ? viewingTracks.slice(appendStartIndex) : viewingTracks;
+
+        tracksToRender.forEach((track, relativeIndex) => {
+            const absoluteIndex = appendStartIndex + relativeIndex;
+            
             if (filterText && !track.title.toLowerCase().includes(filterText) && !track.artist.toLowerCase().includes(filterText)) return;
             
-            // Check if this specific track is currently playing
             const isCurrentlyPlaying = (playingQueue.length > 0 && playingQueue[currentIndex] && playingQueue[currentIndex].url === track.url);
             
+            const safeTitle = track.title ? track.title.replace(/"/g, '&quot;') : 'unknown song';
+            
             const coverHtml = track.cover 
-                ? `<img src="${track.cover}" class="t-img" loading="lazy">` 
-                : `<div class="t-img" style="display:flex;align-items:center;justify-content:center;font-size:18px;">🎵</div>`;
+                ? `<img src="${track.cover}" class="t-img" loading="lazy" alt="album art of ${safeTitle}">` 
+                : `<div class="t-img" style="display:flex;align-items:center;justify-content:center;font-size:18px;" aria-label="no album art for ${safeTitle}">🎵</div>`;
 
             const row = document.createElement('div');
             row.className = `track-row ${isCurrentlyPlaying ? 'active' : ''}`;
-            row.onclick = () => playTrack(index);
+            row.onclick = () => playTrack(absoluteIndex);
             row.innerHTML = `
-                <div class="t-num">${isCurrentlyPlaying ? '<span style="color:var(--primary)">▶</span>' : index + 1}</div>
+                <div class="t-num">${isCurrentlyPlaying ? '<span style="color:var(--primary)">▶</span>' : absoluteIndex + 1}</div>
                 <div class="t-info">
                     ${coverHtml}
                     <div class="t-meta">
@@ -474,8 +667,40 @@ if (is_dir($musicDir)) {
     }
 
     function filterSearch() {
-        renderTracklist(document.getElementById('search').value.toLowerCase());
+        renderTracklist(document.getElementById('search').value.toLowerCase(), 0);
     }
+
+    function attachAudioEvents(aud) {
+        aud.addEventListener('timeupdate', () => {
+            if (aud !== mainAudio || !aud.duration) return;
+            const percent = ((aud.currentTime / aud.duration) * 100) + '%';
+            const formattedCurr = formatTime(aud.currentTime);
+            const formattedDur = formatTime(aud.duration);
+            
+            document.getElementById('progress-fill').style.width = percent;
+            document.getElementById('time-curr').textContent = formattedCurr;
+            document.getElementById('time-dur').textContent = formattedDur;
+            
+            document.getElementById('fs-progress-fill').style.width = percent;
+            document.getElementById('fs-time-curr').textContent = formattedCurr;
+            document.getElementById('fs-time-dur').textContent = formattedDur;
+        });
+
+        aud.addEventListener('ended', () => { 
+            if (aud === mainAudio && !isRepeat) nextTrack(); 
+        });
+
+        aud.addEventListener('playing', () => {
+            if (aud !== mainAudio) return;
+            clearTimeout(preloadTimeout);
+            preloadTimeout = setTimeout(() => {
+                calculateAndPreloadNext();
+            }, 3000);
+        });
+    }
+
+    attachAudioEvents(mainAudio);
+    attachAudioEvents(nextAudio);
 
     function calculateAndPreloadNext() {
         if (playingQueue.length === 0) return;
@@ -494,36 +719,54 @@ if (is_dir($musicDir)) {
         }
 
         if (nextIndex !== -1 && playingQueue[nextIndex]) {
-            audioPreload.src = playingQueue[nextIndex].url;
-            audioPreload.load();
+            nextAudio.src = playingQueue[nextIndex].url;
+            nextAudio.muted = true; 
+            nextAudio.load();
         }
     }
 
     function playTrack(indexInView) {
-        // Snapshot the current view into the active playing queue
         playingQueue = [...viewingTracks];
         currentIndex = indexInView;
         const track = playingQueue[currentIndex];
 
-        audio.src = track.url;
-        audio.play();
+        mainAudio.pause();
+        clearTimeout(preloadTimeout);
+
+        if (nextAudio.src && (nextAudio.src.indexOf(encodeURI(track.url)) !== -1 || nextAudio.src.indexOf(track.url) !== -1)) {
+            let temp = mainAudio;
+            mainAudio = nextAudio;
+            nextAudio = temp;
+        } else {
+            mainAudio.src = track.url;
+        }
+
+        mainAudio.muted = false;
+        mainAudio.volume = currentVolume;
+        mainAudio.loop = isRepeat;
+        
+        nextAudio.pause();
+        nextAudio.removeAttribute('src');
+        nextAudio.load(); 
+
+        mainAudio.play();
         
         playBtns.forEach(btn => {
-            btn.textContent = '⏸';
+            updateButtonText(btn, '⏸');
             btn.setAttribute('data-tooltip', 'Pause');
         });
 
-        // Update Bottom Bar
         document.getElementById('now-title').textContent = track.title;
         document.getElementById('now-artist').textContent = track.artist;
-        
-        // Update Fullscreen View
         document.getElementById('fs-title').textContent = track.title;
         document.getElementById('fs-artist').textContent = track.artist;
         
         if (track.cover) {
             document.getElementById('now-img').src = track.cover;
             document.getElementById('fs-img').src = track.cover;
+            
+            document.getElementById('now-img').alt = 'album art of ' + track.title;
+            document.getElementById('fs-img').alt = 'album art of ' + track.title;
             
             document.getElementById('now-img').style.display = 'block';
             document.getElementById('fs-img').style.display = 'block';
@@ -538,8 +781,7 @@ if (is_dir($musicDir)) {
             document.getElementById('fs-placeholder').style.display = 'flex';
         }
 
-        // Re-render the visual list to show the green play arrow
-        renderTracklist(document.getElementById('search').value.toLowerCase());
+        renderTracklist(document.getElementById('search').value.toLowerCase(), 0);
         
         if ('mediaSession' in navigator) {
             navigator.mediaSession.metadata = new MediaMetadata({
@@ -547,18 +789,16 @@ if (is_dir($musicDir)) {
                 artwork: track.cover ? [{ src: track.cover, sizes: '300x300', type: 'image/jpeg' }] : []
             });
         }
-
-        calculateAndPreloadNext();
     }
 
     function togglePlay() {
         if (currentIndex === -1 && viewingTracks.length > 0) return playTrack(0);
-        if (audio.paused) { 
-            audio.play(); 
-            playBtns.forEach(btn => { btn.textContent = '⏸'; btn.setAttribute('data-tooltip', 'Pause'); });
+        if (mainAudio.paused) { 
+            mainAudio.play(); 
+            playBtns.forEach(btn => { updateButtonText(btn, '⏸'); btn.setAttribute('data-tooltip', 'Pause'); });
         } else { 
-            audio.pause(); 
-            playBtns.forEach(btn => { btn.textContent = '▶'; btn.setAttribute('data-tooltip', 'Play'); });
+            mainAudio.pause(); 
+            playBtns.forEach(btn => { updateButtonText(btn, '▶'); btn.setAttribute('data-tooltip', 'Play'); });
         }
     }
     
@@ -568,8 +808,8 @@ if (is_dir($musicDir)) {
     }
     
     function prevTrack() {
-        if (audio.currentTime > 3) { 
-            audio.currentTime = 0; 
+        if (mainAudio.currentTime > 3) { 
+            mainAudio.currentTime = 0; 
         } else if (playingQueue.length > 0) {
             playTrack(currentIndex > 0 ? currentIndex - 1 : playingQueue.length - 1);
         }
@@ -586,7 +826,7 @@ if (is_dir($musicDir)) {
 
     function toggleRepeat() {
         isRepeat = !isRepeat;
-        audio.loop = isRepeat;
+        mainAudio.loop = isRepeat;
         repeatBtns.forEach(btn => {
             btn.style.color = isRepeat ? 'var(--primary)' : 'var(--sub)';
             btn.setAttribute('data-tooltip', isRepeat ? 'Disable repeat' : 'Enable repeat');
@@ -594,36 +834,18 @@ if (is_dir($musicDir)) {
         if (currentIndex !== -1) calculateAndPreloadNext();
     }
 
-    audio.addEventListener('timeupdate', () => {
-        if (!audio.duration) return;
-        const percent = ((audio.currentTime / audio.duration) * 100) + '%';
-        const formattedCurr = formatTime(audio.currentTime);
-        const formattedDur = formatTime(audio.duration);
-        
-        // Update Bottom Bar
-        document.getElementById('progress-fill').style.width = percent;
-        document.getElementById('time-curr').textContent = formattedCurr;
-        document.getElementById('time-dur').textContent = formattedDur;
-        
-        // Update Fullscreen View
-        document.getElementById('fs-progress-fill').style.width = percent;
-        document.getElementById('fs-time-curr').textContent = formattedCurr;
-        document.getElementById('fs-time-dur').textContent = formattedDur;
-    });
-
-    audio.addEventListener('ended', () => { if (!isRepeat) nextTrack(); });
-
     function seek(e) {
-        // e.currentTarget ensures we target the exact progress bar we clicked (bottom bar OR fullscreen bar)
         const bar = e.currentTarget;
-        audio.currentTime = ((e.clientX - bar.getBoundingClientRect().left) / bar.getBoundingClientRect().width) * audio.duration;
+        mainAudio.currentTime = ((e.clientX - bar.getBoundingClientRect().left) / bar.getBoundingClientRect().width) * mainAudio.duration;
     }
 
     function setVolume(e) {
         const bar = document.getElementById('volume-bar');
         const vol = (e.clientX - bar.getBoundingClientRect().left) / bar.getBoundingClientRect().width;
-        audio.volume = Math.max(0, Math.min(1, vol));
-        document.getElementById('volume-fill').style.width = (audio.volume * 100) + '%';
+        currentVolume = Math.max(0, Math.min(1, vol));
+        mainAudio.volume = currentVolume;
+        nextAudio.volume = currentVolume;
+        document.getElementById('volume-fill').style.width = (currentVolume * 100) + '%';
     }
 
     function formatTime(secs) {
@@ -637,11 +859,61 @@ if (is_dir($musicDir)) {
         navigator.mediaSession.setActionHandler('pause', togglePlay);
         navigator.mediaSession.setActionHandler('previoustrack', prevTrack);
         navigator.mediaSession.setActionHandler('nexttrack', nextTrack);
-        
-        // Attaching the skip functions to the native lock screen/media controls
         navigator.mediaSession.setActionHandler('seekbackward', () => skipTime(-15));
         navigator.mediaSession.setActionHandler('seekforward', () => skipTime(15));
     }
+
+    // ==========================================
+    // 3D LIQUID WATERCOLOR SPLASH ANIMATION TRIGGER
+    // ==========================================
+    document.querySelectorAll('.btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            // Remove existing splashes to prevent buildup
+            const existing = this.querySelectorAll('.liquid-splash-container');
+            existing.forEach(el => el.remove());
+
+            const rect = this.getBoundingClientRect();
+            const radius = Math.max(rect.width, rect.height) / 2;
+
+            const container = document.createElement('div');
+            container.className = 'liquid-splash-container';
+            this.appendChild(container);
+
+            // Create central bursting blob
+            const blob = document.createElement('div');
+            blob.className = 'liquid-blob';
+            container.appendChild(blob);
+
+            // Create dangling/dripping droplets tightly around the edge
+            for(let i = 0; i < 12; i++) {
+                const part = document.createElement('div');
+                part.className = 'liquid-particle';
+                
+                const angle = Math.random() * Math.PI * 2;
+                const dist = radius + (Math.random() * 12 + 4); 
+                
+                const tx = Math.cos(angle) * dist;
+                const ty = Math.sin(angle) * dist;
+                
+                const drip = ty + (Math.random() * 15 + 8);
+                
+                const size = Math.random() * 5 + 3;
+                const duration = Math.random() * 0.8 + 0.7; 
+                
+                part.style.setProperty('--tx', tx + 'px');
+                part.style.setProperty('--ty', ty + 'px');
+                part.style.setProperty('--ty-drip', drip + 'px');
+                part.style.setProperty('--size', size + 'px');
+                part.style.setProperty('--dur', duration + 's');
+                
+                container.appendChild(part);
+            }
+
+            setTimeout(() => {
+                if(container.parentNode) container.remove();
+            }, 2000);
+        });
+    });
 </script>
 </body>
 </html>
