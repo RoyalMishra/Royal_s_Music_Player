@@ -197,9 +197,23 @@ if (is_dir($musicDir)) {
         .controls-wrapper { display: flex; flex-direction: column; align-items: center; width: 40%; max-width: 500px; }
         .controls { display: flex; align-items: center; gap: 20px; margin-bottom: 8px; }
         
-        .btn { position: relative; isolation: isolate; background: none; border: none; color: var(--sub); font-size: 18px; cursor: pointer; transition: 0.2s; }
-        .btn:hover { color: var(--text); transform: scale(1.05); }
-        .btn-play { background: #1DB954; color: #000; width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 16px; }
+        .btn { position: relative; isolation: isolate; background: none; border: none; color: var(--sub); font-size: 18px; cursor: pointer; transition: 0.2s; opacity: 0.7; }
+        .btn:hover { color: var(--text); transform: scale(1.05); opacity: 1; }
+        .btn-play { background: #1DB954; color: #000; width: 36px; height: 36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 16px; opacity: 1;}
+
+        /* ACTIVE TOGGLE DOT FOR EMOJI BUTTONS */
+        .btn.active-toggle::before {
+            content: '';
+            position: absolute;
+            bottom: -8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 4px;
+            background: var(--primary);
+            border-radius: 50%;
+            box-shadow: 0 0 6px var(--primary);
+        }
 
         .progress { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11px; color: var(--sub); }
         .bar { flex: 1; height: 4px; background: #4d4d4d; border-radius: 2px; cursor: pointer; position: relative; }
@@ -484,7 +498,58 @@ if (is_dir($musicDir)) {
     const shuffleBtns = [document.getElementById('btn-shuffle'), document.getElementById('fs-btn-shuffle')];
     const repeatBtns = [document.getElementById('btn-repeat'), document.getElementById('fs-btn-repeat')];
     
-    window.onload = () => loadPlaylist('Home');
+    // ==========================================
+    // INDEXEDDB OFFLINE STORAGE ENGINE
+    // ==========================================
+    const DB_NAME = 'RoyalMusicDB';
+    const STORE_NAME = 'cacheStore';
+
+    function initDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(DB_NAME, 1);
+            request.onupgradeneeded = (e) => {
+                const db = e.target.result;
+                if (!db.objectStoreNames.contains(STORE_NAME)) {
+                    db.createObjectStore(STORE_NAME);
+                }
+            };
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async function loadCacheFromDB() {
+        try {
+            const db = await initDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(STORE_NAME, 'readonly');
+                const store = tx.objectStore(STORE_NAME);
+                const request = store.get('playlistCache');
+                request.onsuccess = () => resolve(request.result || {});
+                request.onerror = () => resolve({});
+            });
+        } catch (e) {
+            console.warn("IndexedDB load failed, falling back to memory:", e);
+            return {};
+        }
+    }
+
+    async function saveCacheLocally() {
+        try {
+            const db = await initDB();
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            store.put(playlistCache, 'playlistCache');
+        } catch (e) {
+            console.warn("IndexedDB save failed:", e);
+        }
+    }
+
+    // Initialize application asynchronously
+    window.onload = async () => {
+        playlistCache = await loadCacheFromDB();
+        loadPlaylist('Home');
+    };
 
     // HELPER: Safely update button text nodes without destroying splash animations
     function updateButtonText(btn, text) {
@@ -537,6 +602,7 @@ if (is_dir($musicDir)) {
             combinedTracks.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
             
             playlistCache['All Tracks'] = { tracks: combinedTracks, isComplete: true, isFetching: false };
+            saveCacheLocally(); // Persist aggregation in IndexedDB
             viewingTracks = playlistCache['All Tracks'].tracks;
             
             if (viewingTracks.length > 0) {
@@ -563,18 +629,18 @@ if (is_dir($musicDir)) {
         }
 
         if (folderName === 'Home') {
-            if (!playlistCache[folderName].isComplete) {
-                playlistCache[folderName].isFetching = true;
-                fetch('?api=get_random')
-                    .then(res => res.json())
-                    .then(data => {
-                        playlistCache[folderName] = { tracks: data, isComplete: true, isFetching: false };
-                        if (currentFetchFolder === 'Home') {
-                            viewingTracks = playlistCache[folderName].tracks;
-                            renderTracklist();
-                        }
-                    });
-            }
+            // Always refresh Home silently to fetch new randoms
+            playlistCache[folderName].isFetching = true;
+            fetch('?api=get_random')
+                .then(res => res.json())
+                .then(data => {
+                    playlistCache[folderName] = { tracks: data, isComplete: true, isFetching: false };
+                    saveCacheLocally(); // Persist new randoms to IndexedDB
+                    if (currentFetchFolder === 'Home') {
+                        viewingTracks = playlistCache[folderName].tracks;
+                        renderTracklist();
+                    }
+                });
         } else {
             if (!playlistCache[folderName].isComplete && !playlistCache[folderName].isFetching) {
                 fetchNextBatch(folderName, viewingTracks.length, 5);
@@ -600,6 +666,8 @@ if (is_dir($musicDir)) {
                 playlistCache[folderName].isComplete = !hasMore;
                 playlistCache[folderName].isFetching = false;
                 
+                saveCacheLocally(); // Persist chunks as they load to IndexedDB
+
                 if (currentFetchFolder === folderName) {
                     viewingTracks = playlistCache[folderName].tracks;
                     
@@ -705,9 +773,8 @@ if (is_dir($musicDir)) {
     function calculateAndPreloadNext() {
         if (playingQueue.length === 0) return;
 
-        if (isRepeat) {
-            nextIndex = currentIndex; 
-        } else if (isShuffle) {
+        // Skip isRepeat locking so manual "Next" button always works properly
+        if (isShuffle) {
             if (playingQueue.length > 1) {
                 do { nextIndex = Math.floor(Math.random() * playingQueue.length); } 
                 while (nextIndex === currentIndex);
@@ -765,6 +832,7 @@ if (is_dir($musicDir)) {
             document.getElementById('now-img').src = track.cover;
             document.getElementById('fs-img').src = track.cover;
             
+            // Dynamically update the alt text for SEO when the song plays
             document.getElementById('now-img').alt = 'album art of ' + track.title;
             document.getElementById('fs-img').alt = 'album art of ' + track.title;
             
@@ -803,22 +871,47 @@ if (is_dir($musicDir)) {
     }
     
     function nextTrack() {
-        if (nextIndex !== -1) playTrack(nextIndex);
-        else if (playingQueue.length > 0) playTrack(0);
+        if (playingQueue.length === 0) return;
+        
+        let targetIndex = nextIndex;
+        
+        if (isRepeat) {
+            if (isShuffle) {
+                if (playingQueue.length > 1) {
+                    do { targetIndex = Math.floor(Math.random() * playingQueue.length); } 
+                    while (targetIndex === currentIndex);
+                } else {
+                    targetIndex = 0;
+                }
+            } else {
+                targetIndex = (currentIndex < playingQueue.length - 1) ? currentIndex + 1 : 0;
+            }
+        }
+        
+        if (targetIndex !== -1) playTrack(targetIndex);
+        else playTrack(0);
     }
     
     function prevTrack() {
         if (mainAudio.currentTime > 3) { 
             mainAudio.currentTime = 0; 
         } else if (playingQueue.length > 0) {
-            playTrack(currentIndex > 0 ? currentIndex - 1 : playingQueue.length - 1);
+            if (isShuffle && playingQueue.length > 1) {
+                let prevRandom = -1;
+                do { prevRandom = Math.floor(Math.random() * playingQueue.length); } 
+                while (prevRandom === currentIndex);
+                playTrack(prevRandom);
+            } else {
+                playTrack(currentIndex > 0 ? currentIndex - 1 : playingQueue.length - 1);
+            }
         }
     }
 
     function toggleShuffle() {
         isShuffle = !isShuffle;
         shuffleBtns.forEach(btn => {
-            btn.style.color = isShuffle ? 'var(--primary)' : 'var(--sub)';
+            if (isShuffle) btn.classList.add('active-toggle');
+            else btn.classList.remove('active-toggle');
             btn.setAttribute('data-tooltip', isShuffle ? 'Disable shuffle' : 'Enable shuffle');
         });
         if (currentIndex !== -1) calculateAndPreloadNext();
@@ -828,10 +921,10 @@ if (is_dir($musicDir)) {
         isRepeat = !isRepeat;
         mainAudio.loop = isRepeat;
         repeatBtns.forEach(btn => {
-            btn.style.color = isRepeat ? 'var(--primary)' : 'var(--sub)';
+            if (isRepeat) btn.classList.add('active-toggle');
+            else btn.classList.remove('active-toggle');
             btn.setAttribute('data-tooltip', isRepeat ? 'Disable repeat' : 'Enable repeat');
         });
-        if (currentIndex !== -1) calculateAndPreloadNext();
     }
 
     function seek(e) {
